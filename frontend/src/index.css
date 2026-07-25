@@ -1,0 +1,26 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-paper text-ink font-body antialiased;
+    background-image: radial-gradient(circle at 1px 1px, rgba(15,23,42,0.06) 1px, transparent 0);
+    background-size: 22px 22px;
+  }
+  ::selection {
+    @apply bg-clinical-100 text-clinical-700;
+  }
+}
+
+@layer utilities {
+  .rail-dot {
+    box-shadow: 0 0 0 4px rgba(14, 124, 97, 0.12);
+  }
+  .card {
+    @apply bg-white border border-ink/10 rounded-xl shadow-sm;
+  }
+  .mono-label {
+    @apply font-mono text-xs tracking-wide uppercase text-ink/50;
+  }
+}

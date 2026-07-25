@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Backend runtime artifacts
+backend/database/claims.db
+backend/logs/*.log
+backend/logs/*.jsonl
+backend/uploads/*
+!backend/uploads/.gitkeep
+backend/.env
+
+# Node / frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# OS
+.DS_Store

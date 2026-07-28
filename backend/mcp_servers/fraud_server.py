@@ -29,6 +29,13 @@ from database import db
 mcp = FastMCP("fraud-database")
 
 
+def _as_float(value, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
 @mcp.tool()
 def list_fraud_patterns() -> list:
     """Return the catalogue of known fraud indicator patterns used for
@@ -80,12 +87,17 @@ def score_claim_risk(claimed_amount: float, procedure_code: str, hospital_fraud_
     proc = db.get_procedure(procedure_code)
     score = 0.0
     reasons = []
+    claimed_amount = _as_float(claimed_amount)
+    hospital_fraud_flags = int(_as_float(hospital_fraud_flags))
+    duplicate_count = int(_as_float(duplicate_count))
+    days_since_policy_start = int(_as_float(days_since_policy_start, 9999))
 
     if proc:
-        if claimed_amount > proc["typical_cost_max"] * 1.3:
+        typical_cost_max = _as_float(proc.get("typical_cost_max"))
+        if claimed_amount > typical_cost_max * 1.3:
             score += 0.35
             reasons.append("claimed_amount_far_above_typical_cost")
-        elif claimed_amount > proc["typical_cost_max"]:
+        elif claimed_amount > typical_cost_max:
             score += 0.15
             reasons.append("claimed_amount_above_typical_cost")
 

@@ -29,6 +29,13 @@ from database import db
 mcp = FastMCP("policy-database")
 
 
+def _as_float(value, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
 @mcp.tool()
 def get_policy_details(policy_number: str) -> dict:
     """Fetch full details of an insurance policy by policy number.
@@ -86,12 +93,14 @@ def check_sufficient_balance(policy_number: str, claimed_amount: float) -> dict:
     policy = db.get_policy(policy_number)
     if not policy:
         return {"sufficient": False, "reason": "policy_not_found"}
-    sufficient = policy["remaining_coverage"] >= claimed_amount
+    remaining_coverage = _as_float(policy.get("remaining_coverage"))
+    claimed_amount = _as_float(claimed_amount)
+    sufficient = remaining_coverage >= claimed_amount
     return {
         "sufficient": sufficient,
-        "remaining_coverage": policy["remaining_coverage"],
+        "remaining_coverage": remaining_coverage,
         "claimed_amount": claimed_amount,
-        "shortfall": max(0, claimed_amount - policy["remaining_coverage"]),
+        "shortfall": max(0, claimed_amount - remaining_coverage),
     }
 
 

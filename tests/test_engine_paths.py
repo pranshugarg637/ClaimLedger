@@ -1,9 +1,11 @@
 import os
 import sys
+import asyncio
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "backend")))
 
 from engine.decision_engine import evaluate_claim
+from agents import medical_agent
 
 
 def test_reject_path():
@@ -42,3 +44,24 @@ def test_approve_path():
     }
     result = evaluate_claim(state)
     assert result["decision"] == "approved"
+
+
+def test_medical_agent_handles_string_claim_amount(monkeypatch):
+    monkeypatch.setattr("agents.medical_agent.get_procedure_reference", lambda procedure_code: {"found": True, "typical_cost_min": "80000", "typical_cost_max": "150000"})
+    monkeypatch.setattr("agents.medical_agent.get_patient_history", lambda patient_id: {"found": True, "known_conditions": []})
+    monkeypatch.setattr("agents.medical_agent.log_agent_action", lambda *args, **kwargs: None)
+    async def _fake_ask_llm_json(system_prompt, user_prompt):
+        return {}, "raw"
+
+    monkeypatch.setattr("agents.medical_agent.ask_llm_json", _fake_ask_llm_json)
+
+    state = {
+        "claim_id": "CLM-1",
+        "patient_id": "PAT-001",
+        "procedure_code": "CARD-ANGIO",
+        "claimed_amount": "120000",
+        "policy_verification": {"plan_type": "Standard"},
+    }
+
+    result = asyncio.run(medical_agent.run(state))
+    assert result["medical_validation"]["cost_within_range"] is True

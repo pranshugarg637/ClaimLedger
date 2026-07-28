@@ -9,6 +9,8 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..",
 from governance.audit import assess_risk, policy_compliance_check, requires_human_review
 from api.routes import login, signup
 from schemas import AuthRequest
+from mcp_servers.fraud_server import score_claim_risk
+from mcp_servers.policy_server import check_sufficient_balance
 
 
 def test_assess_risk_accepts_string_inputs():
@@ -32,6 +34,34 @@ def test_policy_compliance_check_accepts_string_inputs():
 
 def test_requires_human_review_accepts_string_inputs():
     assert requires_human_review("0.1", "0.6", "100000") is True
+
+
+def test_score_claim_risk_accepts_string_inputs(monkeypatch):
+    monkeypatch.setattr(
+        "mcp_servers.fraud_server.db.get_procedure",
+        lambda procedure_code: {"typical_cost_max": "150000"},
+    )
+
+    report = score_claim_risk("250000", "CARD-ANGIO", "2", "1", "10")
+
+    assert report["fraud_score"] == 1.0
+    assert "claimed_amount_far_above_typical_cost" in report["risk_reasons"]
+    assert "hospital_has_prior_fraud_flags" in report["risk_reasons"]
+    assert "duplicate_claim_detected" in report["risk_reasons"]
+    assert "claim_shortly_after_policy_start" in report["risk_reasons"]
+
+
+def test_check_sufficient_balance_accepts_string_inputs(monkeypatch):
+    monkeypatch.setattr(
+        "mcp_servers.policy_server.db.get_policy",
+        lambda policy_number: {"remaining_coverage": "200000"},
+    )
+
+    report = check_sufficient_balance("POL-1001", "150000")
+
+    assert report["sufficient"] is True
+    assert report["remaining_coverage"] == 200000.0
+    assert report["shortfall"] == 0
 
 
 def test_signup_maps_duplicate_value_error(monkeypatch):

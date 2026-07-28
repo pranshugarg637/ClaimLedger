@@ -14,6 +14,13 @@ from guardrails_engine.validators import engine as guardrails_engine
 from governance.audit import log_agent_action
 from config import PLAN_LIMITS
 
+
+def _as_float(value, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
 SYSTEM_PROMPT = """You are a Medical Validation Agent for insurance claims.
 You are given the claimed procedure, claimed amount, reference cost range
 for that procedure, and the patient's medical history. Judge whether the
@@ -39,7 +46,10 @@ async def run(state: dict) -> dict:
     if procedure.get("found"):
         min_limit = limits.get("medical_min_ratio", 0.5)
         max_limit = limits.get("medical_max_ratio", 1.5)
-        cost_within_range = procedure["typical_cost_min"] * min_limit <= claimed_amount <= procedure["typical_cost_max"] * max_limit
+        claimed_amount = _as_float(claimed_amount)
+        typical_cost_min = _as_float(procedure.get("typical_cost_min"))
+        typical_cost_max = _as_float(procedure.get("typical_cost_max"))
+        cost_within_range = typical_cost_min * min_limit <= claimed_amount <= typical_cost_max * max_limit
 
     ground_truth = {"cost_within_range": cost_within_range}
 

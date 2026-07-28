@@ -21,7 +21,26 @@ from config import (
     HUMAN_REVIEW_LOWER_BOUND, MAX_CLAIM_AMOUNT_AUTO,
 )
 
+
+def redact_sensitive(value: object) -> object:
+    if isinstance(value, str):
+        return value[:80] + ("..." if len(value) > 80 else "")
+    if isinstance(value, dict):
+        return {k: redact_sensitive(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [redact_sensitive(v) for v in value]
+    return value
+
 logger = logging.getLogger("governance")
+
+
+def _as_float(value):
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def log_agent_action(claim_id: str, agent: str, action: str, input_summary: dict,
@@ -33,10 +52,10 @@ def log_agent_action(claim_id: str, agent: str, action: str, input_summary: dict
         "claim_id": claim_id,
         "agent": agent,
         "action": action,
-        "input_summary": input_summary,
-        "output_summary": output_summary,
+        "input_summary": redact_sensitive(input_summary),
+        "output_summary": redact_sensitive(output_summary),
         "confidence": confidence,
-        "reasoning": reasoning,
+        "reasoning": redact_sensitive(reasoning),
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
@@ -69,6 +88,10 @@ def assess_risk(fraud_score: float, confidence_score: float, claimed_amount: flo
     risk_level = "low"
     reasons = []
 
+    fraud_score = _as_float(fraud_score)
+    confidence_score = _as_float(confidence_score)
+    claimed_amount = _as_float(claimed_amount)
+
     if fraud_score is not None and fraud_score >= AUTO_REJECT_FRAUD_SCORE:
         risk_level = "high"
         reasons.append("fraud_score_above_reject_threshold")
@@ -91,6 +114,10 @@ def requires_human_review(fraud_score: float, confidence_score: float, claimed_a
     """Hard policy-compliance gate: certain conditions ALWAYS require a
     human claims officer, regardless of what any agent or LLM concluded.
     This is the human-in-the-loop safety net."""
+    fraud_score = _as_float(fraud_score)
+    confidence_score = _as_float(confidence_score)
+    claimed_amount = _as_float(claimed_amount)
+
     if fraud_score is not None and fraud_score >= AUTO_REJECT_FRAUD_SCORE:
         return False  # high fraud -> auto-reject is allowed, not "review"; see decision agent
     if confidence_score is not None and HUMAN_REVIEW_LOWER_BOUND <= confidence_score < AUTO_APPROVE_CONFIDENCE:
@@ -112,10 +139,11 @@ def policy_compliance_check(state: dict) -> dict:
         violations.append("policy_inactive_but_claim_processed")
 
     fraud = state.get("fraud_detection", {}) or {}
-    if fraud.get("fraud_score", 0) >= AUTO_REJECT_FRAUD_SCORE and state.get("decision") == "approved":
+    fraud_score = _as_float(fraud.get("fraud_score"))
+    if fraud_score is not None and fraud_score >= AUTO_REJECT_FRAUD_SCORE and state.get("decision") == "approved":
         violations.append("high_fraud_score_cannot_be_approved")
 
-    claimed = state.get("claimed_amount", 0)
+    claimed = _as_float(state.get("claimed_amount"))
     if claimed and claimed > MAX_CLAIM_AMOUNT_AUTO and state.get("decision") == "approved" \
             and not state.get("requires_human_review"):
         violations.append("large_claim_bypassed_human_review")

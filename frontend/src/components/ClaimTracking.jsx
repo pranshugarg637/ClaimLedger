@@ -49,7 +49,7 @@ export default function ClaimTracking() {
         fraud_detection: data.fraud_detection ?? prev.fraud_detection,
       }))
       if (data.final) {
-        setFinalDecision({ decision: data.decision, confidence: data.confidence_score, reasoning: data.reasoning })
+        setFinalDecision({ decision: data.decision, confidence: data.confidence_score, reasoning: data.reasoning, reasonCodes: data.reason_codes || [], evidenceBundle: data.evidence_bundle })
         setRunning(false)
       }
     }
@@ -153,6 +153,22 @@ export default function ClaimTracking() {
               <span className="mono-label ml-auto">confidence {(finalDecision.confidence * 100).toFixed(0)}%</span>
             </div>
             <p className="text-sm text-ink/70 leading-relaxed">{finalDecision.reasoning}</p>
+            {finalDecision.reasonCodes?.length > 0 && (
+              <div className="mt-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-ink/60">Reason codes</p>
+                <div className="flex flex-wrap gap-2 mt-2">
+                  {finalDecision.reasonCodes.map((code) => (
+                    <span key={code} className="px-2 py-1 rounded-full bg-white/70 text-xs font-mono">{code}</span>
+                  ))}
+                </div>
+              </div>
+            )}
+            {finalDecision.evidenceBundle && (
+              <details className="mt-3 text-sm text-ink/70">
+                <summary className="cursor-pointer font-medium">Show evidence bundle</summary>
+                <pre className="mt-2 whitespace-pre-wrap text-xs bg-white/70 p-3 rounded-md overflow-x-auto">{JSON.stringify(finalDecision.evidenceBundle, null, 2)}</pre>
+              </details>
+            )}
             <button
               onClick={downloadReport}
               className="mt-4 flex items-center gap-2 text-sm font-medium text-ink/70 hover:text-ink border border-ink/15 rounded-lg px-3 py-1.5 hover:bg-white transition-colors"

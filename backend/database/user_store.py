@@ -30,9 +30,9 @@ def _mongo_users():
             _users.create_index("username", unique=True)
             logger.info("Using MongoDB for user accounts")
         except Exception as exc:
-            logger.warning("MongoDB unavailable; using SQLite user fallback: %s", exc)
-            _users = False
-    return _users if _users is not None and _users is not False else None
+            logger.error("MongoDB is configured but unavailable: %s", exc)
+            raise RuntimeError("MongoDB Atlas is configured but unavailable; fix the connection before signing in or signing up.") from exc
+    return _users
 
 
 def _hash(password, salt):
@@ -49,7 +49,7 @@ def create_user(username, password, role):
         users.insert_one({"username": username, "password_hash": _hash(password, salt), "salt": salt,
                           "role": role, "created_at": datetime.now(timezone.utc).isoformat()})
     except Exception as exc:
-        if "duplicate" in str(exc).lower():
+        if "duplicate" in str(exc).lower() or "unique" in str(exc).lower():
             raise ValueError("Username is already registered") from exc
         raise
 

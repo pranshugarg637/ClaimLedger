@@ -21,6 +21,12 @@ router = APIRouter()
 def signup(payload: AuthRequest):
     try:
         user_store.create_user(payload.username, payload.password, payload.role)
+    except ValueError as exc:
+        if "already registered" in str(exc).lower():
+            raise HTTPException(409, "Username is already registered")
+        raise
+    except RuntimeError as exc:
+        raise HTTPException(503, str(exc))
     except Exception as exc:
         if "UNIQUE" in str(exc).upper():
             raise HTTPException(409, "Username is already registered")
@@ -30,7 +36,10 @@ def signup(payload: AuthRequest):
 
 @router.post("/auth/login")
 def login(payload: AuthRequest):
-    user = user_store.authenticate_user(payload.username, payload.password)
+    try:
+        user = user_store.authenticate_user(payload.username, payload.password)
+    except RuntimeError as exc:
+        raise HTTPException(503, str(exc))
     if not user or user["role"] != payload.role:
         raise HTTPException(401, "Invalid username, password, or role")
     return {"username": user["username"], "role": user["role"]}
@@ -153,6 +162,8 @@ async def process_claim(claim_id: str, role: str = Depends(require_role({"claims
         "decision": final_state.get("decision"),
         "confidence_score": final_state.get("confidence_score"),
         "reasoning": final_state.get("decision_reasoning"),
+        "reason_codes": final_state.get("reason_codes"),
+        "evidence_bundle": final_state.get("evidence_bundle"),
         "governance_report": final_state.get("governance_report"),
     }
 
@@ -216,7 +227,9 @@ async def process_claim_ws(websocket: WebSocket, claim_id: str):
             await websocket.send_json({"stage": "done", "final": True,
                                         "decision": final_state.get("decision"),
                                         "confidence_score": final_state.get("confidence_score"),
-                                        "reasoning": final_state.get("decision_reasoning")})
+                                        "reasoning": final_state.get("decision_reasoning"),
+                                        "reason_codes": final_state.get("reason_codes"),
+                                        "evidence_bundle": final_state.get("evidence_bundle")})
     except WebSocketDisconnect:
         logger.info(f"Client disconnected during processing of {claim_id}")
     except Exception as e:

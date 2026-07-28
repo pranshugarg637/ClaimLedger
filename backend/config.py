@@ -46,6 +46,23 @@ AUTO_REJECT_FRAUD_SCORE = float(os.getenv("AUTO_REJECT_FRAUD_SCORE", "0.75"))
 HUMAN_REVIEW_LOWER_BOUND = float(os.getenv("HUMAN_REVIEW_LOWER_BOUND", "0.55"))
 MAX_CLAIM_AMOUNT_AUTO = float(os.getenv("MAX_CLAIM_AMOUNT_AUTO", "500000"))
 
+# New deterministic thresholds for the upgraded engine
+DOCUMENT_MIN_CONFIDENCE = float(os.getenv("DOCUMENT_MIN_CONFIDENCE", "0.90"))
+POLICY_MIN_CONFIDENCE = float(os.getenv("POLICY_MIN_CONFIDENCE", "1.00"))
+MEDICAL_MIN_CONFIDENCE = float(os.getenv("MEDICAL_MIN_CONFIDENCE", "0.80"))
+FRAUD_MIN_CONFIDENCE = float(os.getenv("FRAUD_MIN_CONFIDENCE", "0.80"))
+AUTO_APPROVAL_LIMIT = float(os.getenv("AUTO_APPROVAL_LIMIT", "500000"))
+AUTO_REVIEW_LIMIT = float(os.getenv("AUTO_REVIEW_LIMIT", "750000"))
+AUTO_ESCALATION_LIMIT = float(os.getenv("AUTO_ESCALATION_LIMIT", "1000000"))
+DUPLICATE_REVIEW_THRESHOLD = float(os.getenv("DUPLICATE_REVIEW_THRESHOLD", "0.60"))
+
+PLAN_LIMITS = {
+    "Gold": {"auto_approval_limit": 500000, "auto_review_limit": 750000, "auto_escalation_limit": 1000000},
+    "Silver": {"auto_approval_limit": 250000, "auto_review_limit": 500000, "auto_escalation_limit": 750000},
+    "Platinum": {"auto_approval_limit": 1000000, "auto_review_limit": 1500000, "auto_escalation_limit": 2000000},
+    "Standard": {"auto_approval_limit": 300000, "auto_review_limit": 600000, "auto_escalation_limit": 900000},
+}
+
 # ---------------------------------------------------------------------------
 # Roles (simple RBAC)
 # ---------------------------------------------------------------------------

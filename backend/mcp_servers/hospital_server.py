@@ -8,7 +8,19 @@ import os
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from mcp.server.fastmcp import FastMCP
+try:
+    from mcp.server.fastmcp import FastMCP
+except ImportError:  # pragma: no cover - demo fallback
+    class FastMCP:  # type: ignore[override]
+        def __init__(self, name):
+            self.name = name
+        def tool(self):
+            def decorator(func):
+                return func
+            return decorator
+        def run(self, transport=None):
+            return None
+
 from database import db
 
 mcp = FastMCP("hospital-database")

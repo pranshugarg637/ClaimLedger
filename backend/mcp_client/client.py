@@ -11,7 +11,19 @@ agents never import mcp_servers/* directly, they only ever see `tools`.
 import asyncio
 import inspect
 import json
-from langchain_mcp_adapters.client import MultiServerMCPClient
+
+try:
+    from langchain_mcp_adapters.client import MultiServerMCPClient
+except ImportError:  # pragma: no cover - demo fallback
+    class MultiServerMCPClient:  # type: ignore[override]
+        def __init__(self, *args, **kwargs):
+            self.server_name_to_tools = {}
+        async def __aenter__(self):
+            return self
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+        def get_tools(self):
+            return []
 
 from config import MCP_SERVERS
 

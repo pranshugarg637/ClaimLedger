@@ -43,7 +43,7 @@ from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
 
 from graph.state import ClaimState
-from agents import document_agent, policy_agent, medical_agent, fraud_agent, decision_agent
+from agents import document_agent, policy_agent, medical_agent, fraud_agent, duplicate_agent, decision_agent
 
 logger = logging.getLogger("graph.workflow")
 
@@ -103,11 +103,11 @@ def _degraded_defaults(agent_name: str) -> dict:
 
 def route_after_document_check(state: ClaimState) -> list[str]:
     """Conditional edge: skip straight to the decision agent if the document
-    itself is invalid; otherwise fan out to all three parallel agents."""
+    itself is invalid; otherwise fan out to the parallel evidence agents."""
     doc_result = state.get("document_verification", {}) or {}
     if not doc_result.get("is_valid", False):
         return ["decision_agent"]
-    return ["policy_verification", "medical_validation", "fraud_detection"]
+    return ["policy_verification", "medical_validation", "fraud_detection", "duplicate_claim_detection"]
 
 
 def build_graph():
@@ -120,6 +120,7 @@ def build_graph():
     graph.add_node("policy_verification_agent", with_retries("policy_verification", policy_agent.run))
     graph.add_node("medical_validation_agent", with_retries("medical_validation", medical_agent.run))
     graph.add_node("fraud_detection_agent", with_retries("fraud_detection", fraud_agent.run))
+    graph.add_node("duplicate_claim_agent", with_retries("duplicate_claim_detection", duplicate_agent.run))
     graph.add_node("decision_agent", with_retries("decision", decision_agent.run))
 
     graph.set_entry_point("document_verification_agent")
@@ -132,6 +133,7 @@ def build_graph():
             "policy_verification": "policy_verification_agent",
             "medical_validation": "medical_validation_agent",
             "fraud_detection": "fraud_detection_agent",
+            "duplicate_claim_detection": "duplicate_claim_agent",
         },
     )
 
@@ -139,6 +141,7 @@ def build_graph():
     graph.add_edge("policy_verification_agent", "decision_agent")
     graph.add_edge("medical_validation_agent", "decision_agent")
     graph.add_edge("fraud_detection_agent", "decision_agent")
+    graph.add_edge("duplicate_claim_agent", "decision_agent")
 
     graph.add_edge("decision_agent", END)
 

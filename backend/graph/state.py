@@ -50,6 +50,8 @@ class ClaimState(TypedDict, total=False):
     policy_verification: Dict[str, Any]
     medical_validation: Dict[str, Any]
     fraud_detection: Dict[str, Any]
+    duplicate_claim_detection: Dict[str, Any]
+    evidence_bundle: Dict[str, Any]
 
     # ---- guardrails / governance ----
     guardrails_report: Dict[str, Any]

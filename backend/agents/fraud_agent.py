@@ -19,6 +19,16 @@ from guardrails_engine.validators import engine as guardrails_engine
 from governance.audit import log_agent_action
 from database import db
 
+
+def _risk_tier(score: float) -> str:
+    if score < 0.40:
+        return "low"
+    if score < 0.70:
+        return "medium"
+    if score < 0.90:
+        return "high"
+    return "critical"
+
 SYSTEM_PROMPT = """You are a Fraud Detection Agent for medical insurance claims.
 You are given a deterministic, rule-based fraud_score (0-1, ALREADY COMPUTED,
 you must not change this number) plus supporting signals. Write a short
@@ -60,6 +70,7 @@ async def run(state: dict) -> dict:
 
     deterministic_fraud_score = risk_score_result["fraud_score"]
     deterministic_reasons = risk_score_result["risk_reasons"]
+    fraud_risk_tier = _risk_tier(deterministic_fraud_score)
 
     user_prompt = f"""Deterministic fraud_score (authoritative, do not change): {deterministic_fraud_score}
 Contributing rule-based reasons: {deterministic_reasons}
@@ -92,6 +103,14 @@ Days since policy started: {days_since_start}
         parsed["fraud_score"] = deterministic_fraud_score
         parsed["risk_reasons"] = deterministic_reasons
         parsed["summary"] = "Fraud narrative was malformed; deterministic fraud checks were used."
+
+    parsed["risk_tier"] = fraud_risk_tier
+    parsed["reason_codes"] = []
+    if fraud_risk_tier == "critical":
+        parsed["reason_codes"].append("CRITICAL_FRAUD_RISK")
+    elif fraud_risk_tier in {"high", "medium"}:
+        parsed["reason_codes"].append("FRAUD_RISK_REVIEW")
+    parsed["evidence"] = {"findings": {"risk_tier": fraud_risk_tier, "fraud_score": deterministic_fraud_score}, "confidence": parsed.get("confidence"), "warnings": deterministic_reasons, "evidence": {"duplicate_check": duplicate_check, "network_check": network_check, "risk_score_result": risk_score_result}}
 
     log_agent_action(claim_id, "fraud_detection_agent", "assess_fraud_risk",
                       {"patient_id": patient_id, "procedure_code": procedure_code}, parsed,

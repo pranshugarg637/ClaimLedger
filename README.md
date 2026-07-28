@@ -12,6 +12,49 @@ No OpenAI, no Anthropic, no Gemini, no paid APIs. The only LLM is
 Frontend (React+Tailwind) → FastAPI → LangGraph → 5 Agents → MCP Tools → Guardrails AI → Governance → Decision → Dashboard
 ```
 
+## Updated architecture
+
+```mermaid
+flowchart TD
+    A[API] --> B[Input Validation]
+    B --> C[Document Verification]
+    C --> D[Policy Agent]
+    C --> E[Duplicate Claim Agent]
+    C --> F[Medical Agent]
+    C --> G[Fraud Intelligence Agent]
+    D --> H[Evidence Aggregator]
+    E --> H
+    F --> H
+    G --> H
+    H --> I[Decision Engine]
+    I --> J[Governance Validator]
+    J --> K[Final Decision]
+```
+
+## Decision engine stages
+
+| Stage | Rule | Reason Code |
+| --- | --- | --- |
+| 1 | Invalid document | INVALID_DOCUMENT |
+| 1 | Inactive policy | POLICY_INACTIVE |
+| 1 | Patient not covered | PATIENT_NOT_COVERED |
+| 1 | Procedure not covered | PROCEDURE_NOT_COVERED |
+| 1 | Blacklisted hospital | BLACKLISTED_HOSPITAL |
+| 1 | Critical fraud risk | CRITICAL_FRAUD_RISK |
+| 2 | OCR fallback failed | DOCUMENT_FALLBACK_FAILED |
+| 2 | Document field mismatch | DOCUMENT_FIELD_MISMATCH |
+| 2 | Medical uncertainty | MEDICAL_UNCERTAINTY |
+| 2 | Duplicate suspicion | DUPLICATE_CLAIM_SUSPECTED |
+| 2 | Fraud risk review | FRAUD_RISK_REVIEW |
+| 2 | Amount above auto-approval limit | CLAIM_ABOVE_AUTO_APPROVAL_LIMIT |
+| 2 | Insufficient policy balance | INSUFFICIENT_POLICY_BALANCE |
+| 2 | Low agent confidence | LOW_AGENT_CONFIDENCE |
+| 3 | Approval | APPROVED |
+
+## Why the LLM never decides
+
+The LLM only summarizes evidence and generates plain-language reasoning. It never approves, rejects, calculates fraud scores, or overrides policy facts. All business decisions come from deterministic Python in the decision engine.
+
 ---
 
 ## 1. What's in the box

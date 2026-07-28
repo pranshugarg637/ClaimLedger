@@ -18,7 +18,24 @@ import re
 from typing import Any, Dict
 from pydantic import BaseModel, Field, ValidationError
 
-from guardrails.validators import Validator, register_validator, PassResult, FailResult
+try:
+    from guardrails.validators import Validator, register_validator, PassResult, FailResult
+except ImportError:  # pragma: no cover - exercised in offline/demo environments
+    class Validator:  # type: ignore[override]
+        pass
+
+    class PassResult:  # type: ignore[override]
+        pass
+
+    class FailResult:  # type: ignore[override]
+        def __init__(self, error_message=None, fix_value=None):
+            self.error_message = error_message
+            self.fix_value = fix_value
+
+    def register_validator(name: str | None = None, data_type: str | None = None):
+        def decorator(cls):
+            return cls
+        return decorator
 
 # ---------------------------------------------------------------------------
 # Local, offline custom validators (registered with the Guardrails AI runtime)

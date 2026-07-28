@@ -1,20 +1,14 @@
 """
 Decision Agent
 ----------------
-Final synthesis node. Combines every upstream agent's output, runs it
-through the AI Governance layer (risk assessment, policy compliance,
-human-in-the-loop gate), and asks the LLM only for the *narrative
-justification* — the actual approve/reject/needs_review verdict is
-determined deterministically so the system stays auditable and cannot be
-talked into an unsafe decision by a manipulated prompt.
+Final synthesis node. The verdict is determined by the deterministic engine
+below; the LLM is only used to produce human-readable reasoning text.
 """
 from agents.llm_utils import ask_llm_json
 from guardrails_engine.validators import engine as guardrails_engine
-from governance.audit import (
-    log_agent_action, blended_confidence, assess_risk,
-    requires_human_review, policy_compliance_check, build_explainability_report,
-)
-from config import AUTO_APPROVE_CONFIDENCE, AUTO_REJECT_FRAUD_SCORE
+from governance.audit import log_agent_action, assess_risk, policy_compliance_check, build_explainability_report
+from engine.decision_engine import evaluate_claim
+from engine.evidence_aggregator import aggregate_evidence
 
 SYSTEM_PROMPT = """You are the Decision Agent for a medical insurance claims system.
 You are given the FINAL, ALREADY-DETERMINED decision (approved/rejected/needs_review)
@@ -28,86 +22,57 @@ Respond with ONLY a JSON object in exactly this shape:
 
 
 def _deterministic_decision(state: dict) -> tuple[str, float, float]:
-    """The authoritative decision logic. Pure, deterministic, testable —
-    the LLM never gets a vote on the verdict itself, only on the phrasing."""
-    doc = state.get("document_verification", {}) or {}
-    pol = state.get("policy_verification", {}) or {}
-    med = state.get("medical_validation", {}) or {}
-    fraud = state.get("fraud_detection", {}) or {}
-
-    confidence = blended_confidence(
-        doc.get("confidence"), pol.get("confidence"), med.get("confidence"), fraud.get("confidence"),
-    )
-    fraud_score = fraud.get("fraud_score", 0.0) or 0.0
-
-    # Hard reject conditions
-    if not doc.get("is_valid", False):
-        return "rejected", confidence, fraud_score
-    if pol.get("policy_active") is False:
-        return "rejected", confidence, fraud_score
-    if pol.get("procedure_covered") is False:
-        return "rejected", confidence, fraud_score
-    if pol.get("patient_is_covered") is False:
-        return "rejected", confidence, fraud_score
-    if doc.get("field_matches") is False:
-        return "needs_review", confidence, fraud_score
-    if fraud_score >= AUTO_REJECT_FRAUD_SCORE:
-        return "rejected", confidence, fraud_score
-
-    # Human review conditions
-    if requires_human_review(fraud_score, confidence, state.get("claimed_amount")):
-        return "needs_review", confidence, fraud_score
-    if pol.get("sufficient_balance") is False:
-        return "needs_review", confidence, fraud_score
-    if med.get("clinically_plausible") is False or med.get("cost_within_range") is False:
-        return "needs_review", confidence, fraud_score
-
-    # Auto-approve
-    if confidence >= AUTO_APPROVE_CONFIDENCE:
-        return "approved", confidence, fraud_score
-
-    return "needs_review", confidence, fraud_score
+    """The authoritative decision logic. Pure, deterministic, testable."""
+    result = evaluate_claim(state)
+    return result["decision"], result.get("confidence", 0.0), (state.get("fraud_detection") or {}).get("fraud_score", 0.0) or 0.0
 
 
 async def run(state: dict) -> dict:
     claim_id = state["claim_id"]
+    evidence_bundle = aggregate_evidence(state)
+    working_state = {**state, "evidence_bundle": evidence_bundle}
 
-    decision, confidence, fraud_score = _deterministic_decision(state)
+    decision_result = evaluate_claim(working_state)
+    decision = decision_result["decision"]
+    confidence = decision_result.get("confidence", 0.0)
+    fraud_score = (working_state.get("fraud_detection") or {}).get("fraud_score", 0.0) or 0.0
 
     user_prompt = f"""Final decision (do not change): {decision}
-Document verification: {state.get('document_verification')}
-Policy verification: {state.get('policy_verification')}
-Medical validation: {state.get('medical_validation')}
-Fraud detection: {state.get('fraud_detection')}
-Blended confidence: {confidence}
+Document verification: {working_state.get('document_verification')}
+Policy verification: {working_state.get('policy_verification')}
+Medical validation: {working_state.get('medical_validation')}
+Fraud detection: {working_state.get('fraud_detection')}
+Evidence bundle: {evidence_bundle}
+Reason codes: {decision_result.get('reason_codes', [])}
 """
+    # LLM boundary: only summarize evidence and produce human-facing text; never decide or override policy facts.
     parsed, raw = await ask_llm_json(SYSTEM_PROMPT, user_prompt)
 
     if not parsed or parsed.get("decision") != decision:
         parsed = {
             "decision": decision,
-            "reasoning": _fallback_reasoning(decision, state),
+            "reasoning": _fallback_reasoning(decision, working_state),
             "confidence": confidence,
         }
 
     # Governance gates run regardless of what the LLM said
-    working_state = {**state, "decision": decision, "confidence_score": confidence,
-                      "requires_human_review": decision == "needs_review"}
-    compliance = policy_compliance_check(working_state)
+    compliance_state = {**working_state, "decision": decision, "confidence_score": confidence,
+                         "requires_human_review": decision == "needs_review"}
+    compliance = policy_compliance_check(compliance_state)
     if not compliance["compliant"]:
         decision = "needs_review"
         parsed["decision"] = decision
         parsed["reasoning"] += " [Escalated to human review due to policy compliance check.]"
 
-    risk = assess_risk(fraud_score, confidence, state.get("claimed_amount"))
+    risk = assess_risk(fraud_score, confidence, working_state.get("claimed_amount"))
 
-    final_state = {**state, "decision": decision, "confidence_score": confidence,
-                   "requires_human_review": decision == "needs_review"}
+    final_state = {**working_state, "decision": decision, "confidence_score": confidence,
+                   "requires_human_review": decision == "needs_review", "reason_codes": decision_result.get("reason_codes", [])}
     explainability = build_explainability_report(final_state)
 
     log_agent_action(claim_id, "decision_agent", "finalize_decision",
                       {"fraud_score": fraud_score, "confidence": confidence},
-                      {"decision": decision, "reasoning": parsed.get("reasoning")},
+                      {"decision": decision, "reasoning": parsed.get("reasoning"), "reason_codes": decision_result.get("reason_codes", [])},
                       confidence, parsed.get("reasoning"))
 
     return {
@@ -115,14 +80,15 @@ Blended confidence: {confidence}
         "decision_reasoning": parsed.get("reasoning"),
         "confidence_score": confidence,
         "requires_human_review": decision == "needs_review",
+        "reason_codes": decision_result.get("reason_codes", []),
         "governance_report": {
             "risk_assessment": risk,
             "policy_compliance": compliance,
             "explainability": explainability,
         },
+        "evidence_bundle": evidence_bundle,
         "current_stage": "completed",
-        "trace": [{"agent": "decision_agent", "detail": {"decision": decision, "fraud_score": fraud_score},
-                   "llm_raw": raw}],
+        "trace": [{"agent": "decision_agent", "detail": {"decision": decision, "fraud_score": fraud_score, "reason_codes": decision_result.get("reason_codes", [])}, "llm_raw": raw}],
     }
 
 
@@ -132,6 +98,7 @@ def _fallback_reasoning(decision: str, state: dict) -> str:
     pol = state.get("policy_verification", {}) or {}
     med = state.get("medical_validation", {}) or {}
     fraud = state.get("fraud_detection", {}) or {}
+    duplicate = state.get("duplicate_claim_detection", {}) or {}
 
     if doc.get("summary"):
         reasons.append(doc["summary"])
@@ -141,6 +108,8 @@ def _fallback_reasoning(decision: str, state: dict) -> str:
         reasons.append(med["summary"])
     if fraud.get("summary"):
         reasons.append(fraud["summary"])
+    if duplicate.get("summary"):
+        reasons.append(duplicate["summary"])
 
     prefix = {
         "approved": "This claim has been approved.",
@@ -148,4 +117,6 @@ def _fallback_reasoning(decision: str, state: dict) -> str:
         "needs_review": "This claim requires manual review by a claims officer.",
     }.get(decision, "This claim's status has been determined.")
 
+    if state.get("reason_codes"):
+        return prefix + " Reasons: " + ", ".join(state["reason_codes"])
     return prefix + " " + " ".join(reasons)

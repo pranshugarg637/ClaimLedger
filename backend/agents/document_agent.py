@@ -50,6 +50,25 @@ def _document_matches_submission(fields: dict, state: dict) -> list[str]:
             mismatches.append("amount")
     return mismatches
 
+
+def _build_evidence_payload(parsed: dict, fields: dict, mismatches: list[str], fallback_failed: bool = False) -> dict:
+    return {
+        "findings": {
+            "is_valid": parsed.get("is_valid"),
+            "field_matches": not mismatches,
+            "prompt_injection_detected": parsed.get("issues", []) and any("prompt_injection" in issue for issue in parsed.get("issues", [])),
+            "document_fallback_failed": fallback_failed,
+        },
+        "confidence": float(parsed.get("confidence", 0.0) or 0.0),
+        "warnings": parsed.get("issues", []),
+        "evidence": {
+            "ocr_fields": fields,
+            "mismatches": mismatches,
+            "blacklisted_hospital": False,
+            "document_fallback_failed": fallback_failed,
+        },
+    }
+
 SYSTEM_PROMPT = """You are a Document Verification Agent for a medical insurance claims system.
 You are given OCR-extracted text and structured fields from a claim document.
 Judge whether the document looks like a legitimate medical claim document
@@ -74,10 +93,12 @@ async def run(state: dict) -> dict:
         result = {
             "is_valid": False,
             "document_type": "unknown",
-            "issues": [f"integrity_check_failed: {integrity.get('reason')}"],
+            "issues": [f"integrity_check_failed: {integrity.get('reason')}", "DOCUMENT_FALLBACK_FAILED"],
             "confidence": 0.95,
             "summary": f"Document failed integrity check: {integrity.get('reason')}",
+            "reason_codes": ["INVALID_DOCUMENT", "DOCUMENT_FALLBACK_FAILED"],
         }
+        result["evidence"] = _build_evidence_payload(result, {}, [], fallback_failed=True)
         log_agent_action(claim_id, "document_verification_agent", "reject_invalid_file",
                           {"document_path": document_path}, result, result["confidence"], result["summary"])
         return {
@@ -87,11 +108,8 @@ async def run(state: dict) -> dict:
         }
 
     # Step 2: OCR extraction
+    fallback_failed = False
     try:
-        # OCR invokes external programs (poppler/tesseract). Keep a strict
-        # workflow-level deadline so a problematic scan is reviewable rather
-        # than blocking the claim indefinitely. The MCP server caches a
-        # successful text extraction for the following field-extraction call.
         ocr_text = await asyncio.wait_for(
             asyncio.to_thread(extract_document_text, document_path), timeout=30
         )
@@ -102,6 +120,7 @@ async def run(state: dict) -> dict:
         logger.warning("OCR unavailable for claim %s; continuing with review-forcing fallback: %s", claim_id, exc)
         ocr_text = "[OCR unavailable; document integrity passed but text extraction timed out.]"
         ocr_fields = {"raw_text_length": 0, "ocr_engine_status": "timeout_fallback"}
+        fallback_failed = True
     trace.append({"step": "ocr_extraction", "fields": ocr_fields})
     mismatches = _document_matches_submission(ocr_fields, state)
 
@@ -113,10 +132,12 @@ async def run(state: dict) -> dict:
         result = {
             "is_valid": False,
             "document_type": "unknown",
-            "issues": ["prompt_injection_detected_in_document_text"],
+            "issues": ["prompt_injection_detected_in_document_text", "DOCUMENT_FALLBACK_FAILED"],
             "confidence": 0.9,
             "summary": "Document text contained suspicious instruction-like content and was blocked.",
+            "reason_codes": ["INVALID_DOCUMENT", "DOCUMENT_FALLBACK_FAILED"],
         }
+        result["evidence"] = _build_evidence_payload(result, ocr_fields, [], fallback_failed=fallback_failed)
         log_agent_action(claim_id, "document_verification_agent", "block_prompt_injection",
                           {"ocr_text_snippet": str(ocr_text)[:200]}, result, result["confidence"], result["summary"])
         return {
@@ -155,6 +176,12 @@ PII detected in document: {input_validation['pii_detected']}
         parsed["summary"] = "Document details conflict with the submitted claim fields; verifier review is required."
     elif ocr_fields.get("raw_text_length", 0) > 100:
         parsed["confidence"] = max(float(parsed.get("confidence", 0.5)), 0.9)
+    parsed.setdefault("reason_codes", [])
+    if fallback_failed:
+        parsed["reason_codes"].append("DOCUMENT_FALLBACK_FAILED")
+    if mismatches:
+        parsed["reason_codes"].append("DOCUMENT_FIELD_MISMATCH")
+    parsed["evidence"] = _build_evidence_payload(parsed, ocr_fields, mismatches, fallback_failed=fallback_failed)
 
     validation_report = guardrails_engine.validate_agent_output("document_verification", parsed)
     if not validation_report["schema_valid"]:

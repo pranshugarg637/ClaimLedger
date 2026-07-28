@@ -50,7 +50,9 @@ async def run(state: dict) -> dict:
         result = {
             "policy_active": False, "procedure_covered": False, "sufficient_balance": False,
             "confidence": 0.99, "summary": f"Policy {policy_number} was not found in the database.",
+            "reason_codes": ["POLICY_NOT_FOUND"],
         }
+        result["evidence"] = {"findings": {"policy_found": False}, "confidence": 0.99, "warnings": ["policy_not_found"], "evidence": {"policy_number": policy_number}}
         log_agent_action(claim_id, "policy_verification_agent", "policy_not_found",
                           {"policy_number": policy_number}, result, result["confidence"], result["summary"])
         return {"policy_verification": result, "current_stage": "policy_verification_failed",
@@ -62,6 +64,15 @@ async def run(state: dict) -> dict:
         "sufficient_balance": balance.get("sufficient"),
         "patient_is_covered": coverage.get("patient_is_covered"),
     }
+    parsed_reason_codes = []
+    if coverage.get("policy_active") is False:
+        parsed_reason_codes.append("POLICY_INACTIVE")
+    if coverage.get("patient_is_covered") is False:
+        parsed_reason_codes.append("PATIENT_NOT_COVERED")
+    if coverage.get("procedure_in_plan") is False:
+        parsed_reason_codes.append("PROCEDURE_NOT_COVERED")
+    if balance.get("sufficient") is False:
+        parsed_reason_codes.append("INSUFFICIENT_POLICY_BALANCE")
 
     user_prompt = f"""Ground truth facts from the policy database (do not contradict these):
 - Policy holder: {details.get('holder_name')}
@@ -93,7 +104,10 @@ async def run(state: dict) -> dict:
 
     # Facts, not model self-confidence, determine confidence for policy data.
     parsed.update(ground_truth)
-    parsed["confidence"] = 0.95 if all(ground_truth.values()) else 0.9
+    parsed["confidence"] = 1.0 if all(ground_truth.values()) else 0.95
+    parsed["reason_codes"] = parsed_reason_codes
+    parsed["plan_type"] = details.get("plan_type")
+    parsed["evidence"] = {"findings": {"policy_active": ground_truth["policy_active"], "procedure_covered": ground_truth["procedure_covered"], "sufficient_balance": ground_truth["sufficient_balance"], "patient_is_covered": ground_truth["patient_is_covered"]}, "confidence": parsed["confidence"], "warnings": parsed_reason_codes, "evidence": {"policy_details": details, "coverage": coverage, "balance": balance, "policy_context": policy_context}}
 
     validation_report = guardrails_engine.validate_agent_output("policy_verification", parsed)
     if not validation_report["schema_valid"]:

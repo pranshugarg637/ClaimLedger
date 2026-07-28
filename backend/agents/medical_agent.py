@@ -12,6 +12,7 @@ from mcp_servers.history_server import get_patient_history, get_procedure_refere
 from agents.llm_utils import ask_llm_json
 from guardrails_engine.validators import engine as guardrails_engine
 from governance.audit import log_agent_action
+from config import PLAN_LIMITS
 
 SYSTEM_PROMPT = """You are a Medical Validation Agent for insurance claims.
 You are given the claimed procedure, claimed amount, reference cost range
@@ -32,9 +33,13 @@ async def run(state: dict) -> dict:
     procedure = get_procedure_reference(procedure_code)
     history = get_patient_history(patient_id)
 
+    plan_type = (state.get("policy_verification") or {}).get("plan_type") or "Standard"
+    limits = PLAN_LIMITS.get(plan_type, PLAN_LIMITS["Standard"])
     cost_within_range = False
     if procedure.get("found"):
-        cost_within_range = procedure["typical_cost_min"] * 0.5 <= claimed_amount <= procedure["typical_cost_max"] * 1.5
+        min_limit = limits.get("medical_min_ratio", 0.5)
+        max_limit = limits.get("medical_max_ratio", 1.5)
+        cost_within_range = procedure["typical_cost_min"] * min_limit <= claimed_amount <= procedure["typical_cost_max"] * max_limit
 
     ground_truth = {"cost_within_range": cost_within_range}
 
@@ -64,6 +69,12 @@ Deterministic cost-range check result (ground truth, do not contradict): cost_wi
         parsed["clinically_plausible"] = False
         parsed["summary"] = f"Procedure code {procedure_code} not found in medical procedures reference."
         parsed["confidence"] = max(parsed.get("confidence", 0.5), 0.8)
+    parsed["reason_codes"] = []
+    if not parsed.get("clinically_plausible"):
+        parsed["reason_codes"].append("MEDICAL_UNCERTAINTY")
+    if not parsed.get("cost_within_range"):
+        parsed["reason_codes"].append("COST_OUT_OF_RANGE")
+    parsed["evidence"] = {"findings": {"clinically_plausible": parsed.get("clinically_plausible"), "cost_within_range": parsed.get("cost_within_range")}, "confidence": parsed.get("confidence"), "warnings": parsed["reason_codes"], "evidence": {"procedure": procedure, "history": history, "plan_type": plan_type}}
 
     validation_report = guardrails_engine.validate_agent_output("medical_validation", parsed)
     if not validation_report["schema_valid"]:

@@ -102,13 +102,13 @@ def extract_claim_fields(file_path: str) -> dict:
     fields = {
         "raw_text_length": len(text),
         "patient_name": find(
-            r"patient\s*name\s*[:\-]\s*(.+?)(?=\s{2,}date\s+of\s+birth\s*[:\-]|[\r\n]|$)"
+            r"patient\s*name\s*[:\-]\s*(.+?)(?=\s*(?:·|\||date\s+of\s+birth|gender|contact\s+number|email|address|[\r\n]|$))"
         ),
         "hospital_name": find(
-            r"hospital\s*name\s*[:\-]\s*(.+?)(?=\s{2,}hospital\s+address\s*[:\-]|[\r\n]|$)"
+            r"hospital\s*name\s*[:\-]\s*(.+?)(?=\s*(?:·|\||hospital\s+address|hospital\s+contact|hospital\s+email|hospital\s+type|[\r\n]|$))"
         ),
         "procedure": find(
-            r"procedure\s*name\s*[:\-]\s*(.+?)(?=\s{2,}date\s+of\s+procedure\s*[:\-]|[\r\n]|$)"
+            r"procedure\s*name\s*[:\-]\s*(.+?)(?=\s*(?:·|\||date\s+of\s+procedure|[\r\n]|$))"
         ),
         "amount": find(
             r"(?:claimed\s+amount(?:\s*\([^)]*\))?|total\s+hospital\s+bill\s+amount|amount\s+claimed|amount|total)\s*[:\-]?\s*(?:rs\.?|inr)?\s*([\d,]+)"

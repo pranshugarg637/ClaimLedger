@@ -12,8 +12,15 @@ async def run(state: dict) -> dict:
     procedure_code = state.get("procedure_code")
     duplicate_check = check_duplicate_claims(patient_id, procedure_code, exclude_claim_id=claim_id)
     duplicate_probability = 0.0
-    if duplicate_check.get("duplicate_count", 0) > 0:
-        duplicate_probability = min(1.0, 0.4 + 0.2 * duplicate_check.get("duplicate_count", 0))
+    duplicate_count = int(duplicate_check.get("duplicate_count", 0) or 0)
+
+    # A single prior match is often a legitimate repeat treatment, not a true
+    # duplicate claim. Keep it as a soft signal only; require multiple recent
+    # matches before the workflow escalates to human review.
+    if duplicate_count == 1:
+        duplicate_probability = 0.35
+    elif duplicate_count >= 2:
+        duplicate_probability = min(1.0, 0.65 + 0.1 * (duplicate_count - 2))
     result = {
         "duplicate_probability": duplicate_probability,
         "confidence": 0.95,

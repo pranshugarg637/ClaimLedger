@@ -478,8 +478,8 @@ Days since policy started: {days_since_start}
         parsed = {
             "fraud_score": deterministic_fraud_score,
             "risk_reasons": deterministic_reasons,
-            "confidence": 0.85,
-            "summary": "Fraud analysis completed using deterministic rules because the LLM narrative was unavailable.",
+            "confidence": 0.6,
+            "summary": "LLM narrative unavailable; deterministic fraud score used as-is.",
         }
 
     # ----------------------------------------------------------
@@ -493,7 +493,7 @@ Days since policy started: {days_since_start}
 
     parsed["confidence"] = _as_float(
         parsed.get("confidence"),
-        0.85,
+        0.6,
     )
 
     # ----------------------------------------------------------
@@ -503,10 +503,10 @@ Days since policy started: {days_since_start}
     # ----------------------------------------------------------
 
     if parsed["confidence"] <= 0.0:
-        parsed["confidence"] = 0.85
+        parsed["confidence"] = 0.6
         parsed["summary"] = (
             parsed.get("summary")
-            or "LLM confidence was missing or invalid; deterministic fraud confidence was used."
+            or "LLM confidence was missing/invalid; default confidence used."
         )
 
     # ----------------------------------------------------------
@@ -515,7 +515,7 @@ Days since policy started: {days_since_start}
 
     if parsed["fraud_score"] != deterministic_fraud_score:
         parsed["fraud_score"] = deterministic_fraud_score
-        parsed["confidence"] = min(parsed["confidence"], 0.85)
+        parsed["confidence"] = min(parsed["confidence"], 0.6)
 
     validation_report = guardrails_engine.validate_agent_output(
         "fraud_detection",
@@ -523,13 +523,16 @@ Days since policy started: {days_since_start}
     )
 
     if not validation_report["schema_valid"]:
-        parsed["confidence"] = max(_as_float(parsed.get("confidence"), 0.85), 0.85)
+        parsed["confidence"] = min(
+            _as_float(parsed.get("confidence"), 0.4),
+            0.4,
+        )
 
         parsed["fraud_score"] = deterministic_fraud_score
         parsed["risk_reasons"] = deterministic_reasons
 
         parsed["summary"] = (
-            "Fraud narrative was malformed, so deterministic fraud checks were used."
+            "Fraud narrative was malformed; deterministic fraud checks were used."
         )
 
     parsed["risk_tier"] = fraud_risk_tier

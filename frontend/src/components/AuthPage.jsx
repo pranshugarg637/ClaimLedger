@@ -36,8 +36,12 @@ export default function AuthPage({ onLogin }) {
 
   const submit = async (event) => {
     event.preventDefault()
-    if (!form.username || !form.password) {
-      toast.error('Enter both username and password.')
+    if (form.username.length < 3) {
+      toast.error('Username must be at least 3 characters.')
+      return
+    }
+    if (form.password.length < 8) {
+      toast.error('Password must be at least 8 characters.')
       return
     }
 
@@ -51,7 +55,10 @@ export default function AuthPage({ onLogin }) {
       onLogin(user)
       navigate(roleRedirect[user.role] || '/portal', { replace: true })
     } catch (error) {
-      const message = error.response?.data?.detail || error.message || 'Unable to continue.'
+      const detail = error.response?.data?.detail
+      const message = Array.isArray(detail)
+        ? detail.map((item) => item.msg).join(' ')
+        : detail || error.message || 'Unable to continue.'
       toast.error(message)
     } finally {
       setLoading(false)
@@ -119,6 +126,8 @@ export default function AuthPage({ onLogin }) {
             <label className="block text-sm font-medium text-slate-700">Username</label>
             <input
               type="text"
+              minLength={3}
+              maxLength={64}
               value={form.username}
               onChange={(event) => setForm({ ...form, username: event.target.value })}
               className="mt-2 w-full rounded-3xl border border-slate-200 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-teal-300"
@@ -128,6 +137,8 @@ export default function AuthPage({ onLogin }) {
             <label className="mt-5 block text-sm font-medium text-slate-700">Password</label>
             <input
               type="password"
+              minLength={8}
+              maxLength={128}
               value={form.password}
               onChange={(event) => setForm({ ...form, password: event.target.value })}
               className="mt-2 w-full rounded-3xl border border-slate-200 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-teal-300"
